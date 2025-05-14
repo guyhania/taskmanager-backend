@@ -186,14 +186,3 @@ Includes unit tests for:
 | DELETE | `/api/tasks/{id}` | Delete task    |
 
 ---
-
-## ✅ Future Improvements
-
-* Replace logging with real email/SMS reminder logic
-* Add user authentication
-* Use DTOs and FluentValidation
-* Switch from polling to scheduled task queue (e.g. Quartz/Hangfire)
-
----
-
-Let me know if you want me to generate this as a file or add CI/CD instructions as well!
