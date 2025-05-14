@@ -1,41 +1,37 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Text;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
-using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using TaskReminderService.Configuration;
 using TaskReminderService.Data;
 using TaskReminderService.Models;
+using TaskReminderService.Services;
 using Microsoft.EntityFrameworkCore;
 
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly IServiceProvider _services;
+    private readonly IRabbitMqService _mq;
+    private readonly RabbitMqSettings _settings;
 
-    private IConnection? _connection;
-    private IModel? _channel;
-
-    public Worker(ILogger<Worker> logger, IServiceProvider services)
+    public Worker(
+        ILogger<Worker> logger,
+        IServiceProvider services,
+        IRabbitMqService mq,
+        IOptions<RabbitMqSettings> options)
     {
         _logger = logger;
         _services = services;
+        _mq = mq;
+        _settings = options.Value;
     }
 
     public override Task StartAsync(CancellationToken cancellationToken)
     {
-        var factory = new ConnectionFactory { HostName = "localhost" };
-        _connection = factory.CreateConnection();
-        _channel = _connection.CreateModel();
-
-        _channel.QueueDeclare(queue: "task-reminders", durable: true, exclusive: false, autoDelete: false);
-
-        var consumer = new EventingBasicConsumer(_channel);
-        consumer.Received += OnMessageReceived;
-
-        _channel.BasicConsume(queue: "task-reminders", autoAck: false, consumer: consumer);
-
-        _logger.LogInformation("Worker started and subscribed to task-reminders queue.");
+        _mq.Initialize();
+        _mq.Subscribe(_settings.QueueName, OnMessageReceived);
         return base.StartAsync(cancellationToken);
     }
 
@@ -52,13 +48,8 @@ public class Worker : BackgroundService
 
             foreach (var task in overdueTasks)
             {
-                var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(task));
-                _channel?.BasicPublish(
-                    exchange: "",
-                    routingKey: "task-reminders",
-                    basicProperties: null,
-                    body: body
-                );
+                var json = JsonSerializer.Serialize(task);
+                _mq.Publish(_settings.QueueName, json);
 
                 task.IsReminderSent = true;
                 _logger.LogInformation("Queued task: {Title}", task.Title);
@@ -69,37 +60,34 @@ public class Worker : BackgroundService
         }
     }
 
-    private void OnMessageReceived(object sender, BasicDeliverEventArgs ea)
+    private void OnMessageReceived(object? sender, BasicDeliverEventArgs ea)
     {
         try
         {
             var body = ea.Body.ToArray();
-            var json = Encoding.UTF8.GetString(body);
+            var json = System.Text.Encoding.UTF8.GetString(body);
             var task = JsonSerializer.Deserialize<TaskItem>(json);
 
             _logger.LogWarning("Hi your Task is due: {Title}", task?.Title);
-
-            _channel?.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+            _mq.Acknowledge(ea.DeliveryTag);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process task message.");
-            _channel?.BasicNack(deliveryTag: ea.DeliveryTag, multiple: false, requeue: true);
+            _mq.Reject(ea.DeliveryTag);
         }
     }
 
     public override Task StopAsync(CancellationToken cancellationToken)
     {
-        _channel?.Close();
-        _connection?.Close();
-        _logger.LogInformation("Worker stopped and RabbitMQ connection closed.");
+        _logger.LogInformation("Worker stopping...");
+        _mq.Dispose();
         return base.StopAsync(cancellationToken);
     }
 
     public override void Dispose()
     {
-        _channel?.Dispose();
-        _connection?.Dispose();
+        _mq.Dispose();
         base.Dispose();
     }
 }
