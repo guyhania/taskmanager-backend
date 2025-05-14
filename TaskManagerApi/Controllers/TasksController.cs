@@ -32,8 +32,12 @@ public class TasksController : ControllerBase
     [HttpPost]
     public async Task<ActionResult> Create(TaskItem task)
     {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
         await _repository.AddAsync(task);
         await _repository.SaveChangesAsync();
+        
         _logger.LogInformation("Creating new task: {Title}", task.Title);
 
         return CreatedAtAction(nameof(GetById), new { id = task.Id }, task);
