@@ -37,12 +37,6 @@ Before running the project, make sure you have:
 
 ---
 
-Let me know if you want me to:
-
-* Generate this as a `README.md` file for download
-* Include .NET CLI installation links or PowerShell script for tooling setup
-* Add a “Quick Start” bash block that runs the whole environment in one go
-
 ## 📂 Project Structure
 
 ```
